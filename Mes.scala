@@ -191,7 +191,7 @@ class MesProblem(val N:Int, val dt:Double) {
   def xyToIj(x: Double, y: Double):(Int, Int) = (if(x == 1.0) N-1 else (x*N).floor.toInt, if (y == 1.0) N-1 else (y*N).floor.toInt)
 
 
-  def calculate(funs:List[Fun2D])(x: Double, y: Double):Double = {
+  def calculate(funs:List[Fun2D], a: Array[Double], b: Array[Double], c:Array[Double])(x: Double, y: Double):Double = {
     if(x < 0.5 && y < 0.5) 0.0 else
     {
       assert(x >= 0)
@@ -227,21 +227,26 @@ class MesProblem(val N:Int, val dt:Double) {
   }
 
 
-  val u = calculate(Phi) _
-  val u4 = calculate(Phi.slice(0,4)) _
-  val u8 = calculate(Phi.slice(0,8)) _
-  val du_dx = calculate(dPhi_dx) _
-  val du_dy = calculate(dPhi_dy) _
+  val u = calculate(Phi, a, b, c) _
+  val u4 = calculate(Phi.slice(0,4), a_new, b, c) _
+  val u8 = calculate(Phi.slice(0,8), a_new, b_new, c) _
+  val du_dx = calculate(dPhi_dx, a, b, c) _
+  val du_dy = calculate(dPhi_dy, a, b, c) _
   def lapl(x: Double, y: Double) =
     if (x < 0.5 && y < 0.5) 0.0 else {
-      val h:Double = 0.3/N.toDouble
+      val h:Double = 0.8/N.toDouble
 //      calculate(d2Phi_d2x)(x,y)  + calculate(d2Phi_d2y)(x,y)
 //      val h2 = 1.0/N.toDouble
 //      val x = if(xx < h2) h2 else if (xx > 1.0-h2) 1.0-h2 else xx
 //      val y = if(yx < h2) h2 else if (yx > 1.0-h2) 1.0-h2 else yx
 //
 //      val h = 0.01/N.toDouble
-      (u(sat(x-h), y) + u(sat(x+h),y) + u(x, sat(y-h)) + u(x,sat(y+h)) - 4*u(x,y))/(h*h)
+      val x1 = sat(x-h)
+      val x2 = sat(x+h)
+      val y1 = sat(y-h)
+      val y2 = sat(y+h)
+
+      (u(x1, y) + u(x2,y) + u(x, y1) + u(x,y2) - 4*u(x,y))/((x2-x1)/2.0*(y2-y1)/2.0)
 //      (
 //          if(x < h || 1.0-x < h)
 //            calculate(d2Phi_d2x)(x,y)
@@ -283,7 +288,7 @@ class MesProblem(val N:Int, val dt:Double) {
 //  val dlalp_dy = calculate(d3Phi_dx_dy) _
 
   def f(x:Double, y: Double) =
-    if(x == 0 && y >= 0.5) 1.0 - u(x,y)
+    if(x == 0 && y >= 0.5) 1.0  - u(x,y)
     else if (y == 0 && x >= 0.5) - 1.0 - u(x,y)
     else 0.0
 
@@ -292,7 +297,6 @@ class MesProblem(val N:Int, val dt:Double) {
 
   def bitmap(c:(Double,Double)):Double = c match {
     case(x:Double, y:Double) => {
-//      println("x=%f y=%f u=%f f=%f lapl=%f".format(x,y,u(x,y), f(x,y), lapl(x,y)))
       u(x, y) + dt*f(x,y) + dt*lapl(x,y)
     }
   }
@@ -316,11 +320,11 @@ class MesProblem(val N:Int, val dt:Double) {
 
     def smb = shiftMeBaby(x0,x0+z,y0,y0+z) _
 
-    lazy val upperBottom = integrate(x0, x0+z)((x) => (bitmap(x, y0)   - u4(x, y0))*smb(Phi(4))(x,y0)   )
-    lazy val upperTop    = integrate(x0, x0+z)((x) => (bitmap(x, y0+z) - u4(x, y0+z) )*smb(Phi(6))(x,y0+z)   )
+    lazy val upperBottom = -integrate(x0, x0+z)((x) => (bitmap(x   , y0  )   - u4(x, y0  ) )*smb(Phi(4))(x,y0)   )
+    lazy val upperTop    =  integrate(x0, x0+z)((x) => (bitmap(x   , y0+z)   - u4(x, y0+z) )*smb(Phi(6))(x,y0+z)   )
 
-    lazy val upperRight  = integrate(y0, y0+z)((y) => (bitmap(x0+z, y)   - u4(x0+z, y) )*smb(Phi(5))(x0+z,y)   )
-    lazy val upperLeft   = integrate(y0, y0+z)((y) => (bitmap(x0  , y)   - u4(x0,   y) )*smb(Phi(7))(x0,y)   )
+    lazy val upperRight  =  integrate(y0, y0+z)((y) => (bitmap(x0+z, y   )   - u4(x0+z, y) )*smb(Phi(5))(x0+z,y)   )
+    lazy val upperLeft   = -integrate(y0, y0+z)((y) => (bitmap(x0  , y   )   - u4(x0,   y) )*smb(Phi(7))(x0,y)   )
 
 
 
@@ -342,16 +346,16 @@ class MesProblem(val N:Int, val dt:Double) {
     def smb = shiftMeBaby(x0,x0+z,y0,y0+z) _
 
 
-    val upper = integrate(x0,x0+z)((x) => z*integrate(y0,y0+z)((y) => (bitmap(x,y) - u8(x,y))*smb(Phi(8))(x,y) ))
-    val lower = integrate(x0,x0+z)((x) => z*integrate(y0,y0+z)((y) => math.pow(smb(Phi(8))(x,y),2)))
+    val upper = z*integrate(x0,x0+z)((x) => integrate(y0,y0+z)((y) => (bitmap(x,y) - u8(x,y))*smb(Phi(8))(x,y) ))
+    val lower = integrate(x0,x0+z)((x) => integrate(y0,y0+z)((y) => math.pow(smb(Phi(8))(x,y),2)))
 
-    b_new(element(i,j)) = upper/lower
+    c_new(element(i,j)) = upper/lower
   }
 
   def simulate() {
       // Pętla po wierzchołkach
-      (0 until N+1) foreach ( (j) => {
-        (0 until N+1) foreach ( (i) => {
+      (0 to N) foreach ( (j) => {
+        (0 to N) foreach ( (i) => {
           updateA(i,j)
         })
       })
@@ -362,12 +366,11 @@ class MesProblem(val N:Int, val dt:Double) {
         })
       })
 
-
-//      (0 until N) foreach ( (i) => {
-//        (0 until N) foreach ( (j) => {
-//          updateC(i,j)
-//        })
-//      })
+      (0 until N) foreach ( (i) => {
+        (0 until N) foreach ( (j) => {
+          updateC(i,j)
+        })
+      })
 
       a_new.zipWithIndex.foreach((x) => a(x._2) = x._1)
       b_new.zipWithIndex.foreach((x) => b(x._2) = x._1)
